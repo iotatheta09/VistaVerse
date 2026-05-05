@@ -1,4 +1,4 @@
-import exprees from 'express';
+import express from 'express';
 
 import cors from 'cors';
 
@@ -28,5 +28,13 @@ app.use(express.static('public'));
 
 app.use(cookieParser());
 
+
+import userRouter from "./routes/user.routes.js";
+
+app.use("/api/v1/users", userRouter);
+//first come to /api/v1/users then to userRouter and then to /register and then to registerUser controller function 
+// and then whole route is /api/v1/users/register and method is post and then we will get response from registerUser controller function
+
+//
 
 export {app};
