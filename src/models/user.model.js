@@ -93,3 +93,4 @@ userSchema.methods.generateRefreshToken = function () {
 
 //we donot store access token in database because it is short lived and can be easily generated using the refresh token
 export const User = mongoose.model("User", userSchema);
+//channel bhi user hai tbhi toh comment kr skta hai and user bhi user hai toh dono user hai so channel bhi subscription pe hai user bhi subscription pe hai 
