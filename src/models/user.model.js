@@ -1,7 +1,7 @@
-import mongoose, { schema } from "mongoose";
+import mongoose, { Schema } from "mongoose";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { use } from "react";
+
 
 const userSchema = new Schema(
   {
@@ -54,12 +54,14 @@ const userSchema = new Schema(
   }
 );
 
-userSchema.pre("save", async function (next) {
+userSchema.pre("save", async function () {
   if (!this.isModified("password")) {
-    return next();
+    return ;
   }
   this.password = await bcrypt.hash(this.password, 10);
-  next();
+//  here i remove next()
+  
+
 });
 //jb bhi password save hoga to usse hash krke save krna hai
 //pre hook gives callback and we donot use arrow function because we need to access this keyword which is not available in arrow function

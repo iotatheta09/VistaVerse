@@ -1,188 +1,247 @@
-import { asynchandler } from "../utils/asynchandler.js";
-import { Apierror} from "../utils/ApiError.js";
-import { User } from "../models/user.model.js";
-import { uploadToCloudinary } from "../utils/cloudinary.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import {ApiError} from "../utils/ApiError.js"
+import { User} from "../models/user.model.js"
+import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
+
+console.log("ENV CHECK:", {
+    access_secret: process.env.ACCESS_TOKEN_SECRET,
+    refresh_secret: process.env.REFRESH_TOKEN_SECRET,
+    access_expiry: process.env.ACCESS_TOKEN_EXPIRY,
+    refresh_expiry: process.env.REFRESH_TOKEN_EXPIRY,
+})
+const generateAccessAndRefereshTokens = async(userId) =>{
+    try {
+        const user = await User.findById(userId)
+        const accessToken = user.generateAccessToken()
+        const refreshToken = user.generateRefreshToken()
+
+        user.refreshToken = refreshToken
+        await user.save({ validateBeforeSave: false })
+
+        return {accessToken, refreshToken}
 
 
-
-const generateAccessAndRefreshTokens = async (userId) => {
-   try{
-    const user = await User.findById(userId);
-    // if (!user) {
-    //     throw new Apierror("User not found", 404);
-    // }
-    // this if condition is not required because we will call this function after creating the user and we will pass the user id to this function so we can be sure that the user exists in the database and we can also check for user existence in the controller function before calling this function if we want to be extra sure but it is not required because we will call this function only after creating the user and we will pass the user id to this function so we can be sure that the user exists in the database
-    const accessToken = await user.generateAccessToken();
-    const refreshToken = await user.generateRefreshToken();
-    //access token we give to user 
-    //refresh token we save in the database and we will use it to generate new access token when the access token expires and we will also set the refresh token in the cookie so that we can use it to generate new access token when the access token expires
-    //save the refresh token in the database
-    user.refreshToken = refreshToken;
-    await user.save({ validateBeforeSave: false });
-    //return the access token and refresh token to the client
-    return { accessToken, refreshToken };
-
-
-
-   }catch(error) {
-    throw new Apierror("Failed to generate tokens", 500);
-   }
+    } catch (error) {
+        console.log("REAL ERROR:", error.message) 
+        throw new ApiError(500, "Something went wrong while generating referesh and access token")
+    }
 }
 
+const registerUser = asyncHandler( async (req, res) => {
+    // get user details from frontend
+    // validation - not empty
+    // check if user already exists: username, email
+    // check for images, check for avatar
+    // upload them to cloudinary, avatar
+    // create user object - create entry in db
+    // remove password and refresh token field from response
+    // check for user creation
+    // return res
+console.log("req.files:", req.files);
+    console.log("req.body:", req.body);
 
-const registerUser = asynchandler(async (req, res) => {
-    //get user details from frontend
-    const { fullName, email, username, password } = req.body;
-    //validate the user details - not empty, email is valid, password is strong etc
-    if ([fullName, email, username, password].some((field) => field?.trim() ==="")) {
-        throw new Apierror("All fields are required", 400);
+    const {fullName, email, username, password } = req.body
+    //console.log("email: ", email);
+
+    if (
+        [fullName, email, username, password].some((field) => field?.trim() === "")
+    ) {
+        throw new ApiError(400, "All fields are required")
     }
-    //we can check for email validity using regex or we can use a library like validator.js to check for email validity
-    //we can check other validations also
-    //check user exists or not by seeing email is already present in the database or not or username is already present in the database or not
-    const existedUser = await User.findOne({ $or: [{ email }, { username }] }); 
+
+    const existedUser = await User.findOne({
+        $or: [{ username }, { email }]
+    })
 
     if (existedUser) {
-        throw new Apierror("User already exists with this email or username", 409);
+        throw new ApiError(409, "User with email or username already exists")
     }
-    //check for images ,avatar etc avtar is required in user model  so must be there and cover image is optional
-    const avatarLocalPath = req.files?.avatar[0]?.path;
+    //console.log(req.files);
 
+    //const avatarLocalPath = req.files?.avatar[0]?.path;
+    const avatarLocalPath = req.files?.avatar?.[0]?.path;
+    //const coverImageLocalPath = req.files?.coverImage[0]?.path;
+
+    let coverImageLocalPath;
+    if (req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0) {
+        coverImageLocalPath = req.files.coverImage[0].path
+    }
     
-    const coverImageLocalPath = req.files?.coverImage[0]?.path;
-   //avatar is required so we will check for avatar and if avatar is not present then we will send error response to the client no need to check for cover image because it is optional
+
     if (!avatarLocalPath) {
-        throw new Apierror("Avatar is required", 400);
+        throw new ApiError(400, "Avatar file is required")
     }
 
-    //upload the images to cloudinary and get the url of the images
-    //we will use a utility function to upload the images to cloudinary and get the url of the images
-    //we will pass the local path of the image to the utility function and it will return the url of the image after uploading it to cloudinary
-    const avatar = await uploadToCloudinary(avatarLocalPath);
-    let coverImage;
-    if (coverImageLocalPath) {
-        coverImage = await uploadToCloudinary(coverImageLocalPath);
-    }
+    const avatar = await uploadOnCloudinary(avatarLocalPath)
+    const coverImage = await uploadOnCloudinary(coverImageLocalPath)
 
-    //check avtar is uploaded or not if not then send error response to the client
     if (!avatar) {
-        throw new Apierror("Failed to upload avatar", 500);
+        throw new ApiError(400, "Avatar file is required")
     }
-    //create user object and create entry in db and save it in the database
-    const user =await User.create({
+   
+
+    const user = await User.create({
         fullName,
         avatar: avatar.url,
         coverImage: coverImage?.url || "",
-        email,
+        email, 
         password,
-        username : username.toLowerCase(),
-    });
+        username: username.toLowerCase()
+    })
 
-    //check for user creation
-    //_id is generated by mongodb automatically when we create a new user in the database and it is unique for each user so we can use it to check if the user is created or not
-   const createdUser = await User.findById(user._id).select(
-    "-password -refreshToken "
-   )
+    const createdUser = await User.findById(user._id).select(
+        "-password -refreshToken"
+    )
+
     if (!createdUser) {
-        throw new Apierror("Failed to create user", 500);
-    }
-    //return the response to the client with success message and user details except password and refresh token
-
-return res.status(201).json(new ApiResponse(201, createdUser, "User registered successfully"));
-
-
-
-    
-//remove password and referesh token from the response and then send the response to the client we do this by using the select method of mongoose which will exclude the password and refresh token from the response and then we will send the response to the client
-    
-    
-
-
-
-
-
-    
-});
-
-
-const loginUser = asynchandler(async (req, res) => {
-    //get email and password from the request body
-    const { email, username,password } = req.body;
-    //validate the email,username and password - not empty, email is valid, password is strong etc
-    if(!email || !username ) {
-        throw new Apierror("email or username  are required", 400);
+        throw new ApiError(500, "Something went wrong while registering the user")
     }
 
+    return res.status(201).json(
+        new ApiResponse(200, createdUser, "User registered Successfully")
+    )
 
+} )
+
+const loginUser = asyncHandler(async (req, res) =>{
+    // req body -> data
+    // username or email
     //find the user
-    const user = await User.findOne({ $or: [{ username }, { email }] });
-    //yaha se bhot sara unwanted field bhi aa gaye hai toh jaise password bhi aagya hai but password user ko nahi dena chaiye
-    //check if user exists or not by seeing email,username is already present in the database or not
-    //refresh token abhi is user ke pass empty hai kyuki object aabhi yaha liya but method ne neeche call kiya hai toh uss method me refresh token generate hoke aa jayega aur uske baad hum uss refresh token ko user object me save kar denge toh yaha pe refresh token empty hi milega aur password bhi milega lekin password user ko nahi dena chaiye isliye hum password ko select method se exclude kar denge taki password user ko na mile aur refresh token bhi user ko na mile taki security breach na ho toh hum select method me -password -refreshToken likhenge taki password aur refresh token dono response me na aaye aur user ko sirf access token aur user details hi mile taki security breach na ho 
-    if (!user) {
-        throw new Apierror("User does not exist", 404);
+    //password check
+    //access and referesh token
+    //send cookie
+
+    const {email, username, password} = req.body
+    console.log(email);
+
+    if (!username && !email) {
+        throw new ApiError(400, "username or email is required")
     }
-    //password matching
-    const isPasswordValid = await user.isPasswordCorrect(password);
-    if (!isPasswordValid) {
-        throw new Apierror("Invalid password", 401);
-    }
-    //generate token
-    const { accessToken, refreshToken } = await generateAccessAndRefreshTokens(user._id);
-    //User.findByIdAndUpdate(user._id, { refreshToken }, { new: true }).select("-password -refreshToken");
-    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
-    // if (!loggedInUser) {
-    //     throw new Apierror("Failed to login user", 500);
+    
+    // Here is an alternative of above code based on logic discussed in video:
+    // if (!(username || email)) {
+    //     throw new ApiError(400, "username or email is required")
+        
     // }
-    // not needed because we have already checked for user existence and password validity so we can be sure that the user is logged in successfully and we have also generated the access token and refresh token successfully so we can be sure that the login is successful and we can return the response to the client with success message and user details except password and refresh token and access token
-    //sent cookie in the response
-   const options ={
-    httpOnly: true,
-    secure:true,
 
-   }
+    const user = await User.findOne({
+        $or: [{username}, {email}]
+    })
 
-   return res.status(200)
-   .cookie("accessToken", accessToken, options)
-   .cookie("refreshToken", refreshToken, options)
-   .json(
-    //we already sent at rt to the cookie above 2 codeline but we can also send it in the response body if we want to but it is not recommended because it can cause security breach if we send the access token and refresh token in the response body because it can be accessed by the client side javascript and it can be stolen by the attacker if there is a cross-site scripting (XSS) vulnerability in the application so it is better to send the access token and refresh token in the cookie and set the httpOnly flag to true so that it cannot be accessed by the client side javascript and it can only be sent in the request headers when making authenticated requests to the server and we can also set the secure flag to true so that it can only be sent over HTTPS and not over HTTP to prevent
-    //but if user want to save rt at to their local storage or something then we can also send it in the response body but it is not recommended because it can cause security breach if we send the access token and refresh token in the response body because it can be accessed by the client side javascript and it can be stolen by the attacker if there is a cross-site scripting (XSS) vulnerability in the application so it is better to send the access token and refresh token in the cookie and set the httpOnly flag to true so that it cannot be accessed by the client side javascript and it can only be sent in the request headers when making authenticated requests to the server and we can also set the secure flag to true so that it can only be sent over HTTPS and not over HTTP to prevent
-    new ApiResponse(
-        200, 
-    {
-        user: loggedInUser, accessToken,refreshToken 
-    },//here we send data as an object which contains user details and access token and refresh token so that client can use the access token to make authenticated requests to the server and client can also use the refresh token to generate new access token when the access token expires and we also send the user details except password and refresh token so that client can use the user details to display on the frontend and we also send the success message in the response
-    //that'why we use this.data=data in apiresponse class and we set this.data to the data that we want to send in the response and then we can access this data in the controller function and we can send this data in the response to the client and we also set the success property based on the status code so that client can check if the request was successful or not by checking the success property in the response and we also set the message property to the success message that we want to send in the response so that client can display this message on the frontend if needed
-   "User logged in successfully"
-));
-   
-  
-    //return response to the client with success message and user details except password and refresh token
+    if (!user) {
+        throw new ApiError(404, "User does not exist")
+    }
+
+   const isPasswordValid = await user.isPasswordCorrect(password)
+
+   if (!isPasswordValid) {
+    throw new ApiError(401, "Invalid user credentials")
+    }
+
+   const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
+
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
+
+    const options = {
+        httpOnly: true,
+        secure: true
+    }
+
+    return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+        new ApiResponse(
+            200, 
+            {
+                user: loggedInUser, accessToken, refreshToken
+            },
+            "User logged In Successfully"
+        )
+    )
+
+})
+
+
+//making endpoint of at and rt 
+//we make controller first
+const refreshAccessToken=asyncHandler(async(req,res)=>{
+    //at refresh krne ke liye rt token bhejna hoga and rt cookies se access ho jayega 
+    const incomingRefreshToken=req.cookies.refreshToken || req.body.refreshToken
+
+    if(incomingRefreshToken){
+        throw new ApiError(401,"unauthorized request")
+    }
+
+    try {
+        //decode the incomingRefreshToken
+    const decodedToken=jwt.verify(
+        incomingRefreshToken,
+        process.env.REFRESH_TOKEN_SECRET,
+
+    )
+    //DECODED TOKEN ME jaruri nhi payload ho hii
+    //verify
+    //rt me hm _id bhi diye  the toh iska access hona chaiye ab decoded ke baad toh is id ko use krke mongodb se query mar skte hai
+    const user=await User.findById(decodedToken?._id)
+    if(!user){
+        throw new ApiError(401,"invalid refresh token")
+    }
+
+    //now verify by matching both rt
+    if(incomingRefreshToken !==user?.refreshToken){
+        throw new ApiError(401,"refresh token is expired or used")
+    }
+
+    //now generate new at rt
+
+    //first send to cookies
+
+    const options={
+        httpOnly:true,
+        secure:true
+    }
+
+    const {accessToken,newRefreshToken}=await generateAccessAndRefereshTokens(user._id)
+
+    return res 
+    .status(200)
+    .cookie("accessToken",accessToken,options)
+    .cookie("refreshToken",newRefreshToken,options)
+    .json(
+        new ApiResponse(
+            200,
+            {accessToken,refreshToken:newRefreshToken},
+            "Access token refreshed"
+
+        )
+    )
+
+        
+    } catch (error) {
+        throw new ApiError(401,error?.message ||
+            "invalid refresh token"
+        )
+        
+    }
 
 
 
-}
 
 
-);
 
-const logoutUser = asynchandler(async (req, res) => {
 
-    //first clear cookies
-    //rt from db also remove krna hai taki agar attacker ke pass refresh token aa bhi jaye toh wo use na kar paye toh hum refresh token ko database se bhi remove kar denge taki security breach na ho toh hum user object me refresh token ko empty string set kar denge aur uske baad user object ko save kar denge taki database me refresh token remove ho jaye aur uske baad hum response send kar denge client ko with success message
 
-    //get user id from the request object which is set by the auth middleware after verifying the access token and we can use this user id to find the user in the database and then we can remove the refresh token from the database and then we can send the response to the client with success message
-    //below findbyid me id kaha se leke ayege toh auth middleware me jab access token verify hoke user id mil jayega toh us user id ko request object me set kar denge taki hum is controller function me us user id ko access kar sake aur us user id se user ko find karke uske refresh token ko remove kar sake aur uske baad response send kar sake client ko with success message
-   //login ke time pe email username se login kar sakta hai toh dono cheezo se user ko find karna padega toh hum findone me $or operator ka use karenge taki email ya username dono me se kisi bhi ek se user ko find kar sake aur uske baad us user ke refresh token ko remove kar sake aur uske baad response send kar sake client ko with success message
-   //but logout me ab user ko again ye sb fill krne ki zarurat nahi hai toh hum access token se user id le lenge aur us user id se user ko find kar lenge aur uske refresh token ko remove kar denge aur uske baad response send kar denge client ko with success message
-   //multer middleware kya tha form le ja rhe ho toh file bhi lete jana mere se mil ke multer middleware use krna hai toh multer middleware use krne ke liye hme router me multer middleware ko use krna padega aur uske baad controller function ko call karna padega toh hum router me multer middleware ko use karenge aur uske baad controller function ko call karenge taki jab bhi user logout kare toh uske access token se user id le lenge aur us user id se user ko find kar lenge aur uske refresh token ko remove kar denge aur uske baad response send kar denge client ko with success message
-   //user.routes me hm multer middleware use kiye the 
-   //likewise app.js me cookie parser middleware use kiya taki user.controller me cookieparser access kr paye so req and res dono me cookie parser MW hai toh hm req.cookies and res.cookies dono use kr paye 
-   
-       await User.findByIdAndUpdate(
-        req.user._id,//aap login the at tha aapke pass usek basis pe query mara db me but req.user ka access aya kasie doubt hai see from 55 min in at rt cookie video
+
+})
+
+const logoutUser = asyncHandler(async(req, res) => {
+    await User.findByIdAndUpdate(
+        req.user._id,
         {
             $unset: {
                 refreshToken: 1 // this removes the field from document
@@ -203,35 +262,15 @@ const logoutUser = asynchandler(async (req, res) => {
     .clearCookie("accessToken", options)
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged Out"))
-
-});
-
+})
 
 
 
 
-
-
-
-
-export { registerUser,loginUser,logoutUser };
-//below is for regsiteruser function
-//get user details from frontend
-//validate the user details - not empty, email is valid, password is strong etc
-//check for images ,avatar etc avtar is required in user model  so must be there and cover image is optional
-//upload the images to cloudinary and get the url of the images
-//check avtar is uploaded or not if not then send error response to the client
-//create user object and create entry in db and save it in the database
-//remove password and referesh token from the response and then send the response to the client
-//check for user creation 
-//return the response to the client with success message and user details except password and refresh token
-
-
-
-// we check if the user already exists or not by seeing email is already present in the database or not or username is already present in the database or not 
-// we will hash the password and then we will save the user in the database and then we will send the response to the client
-//we will use the User model to save the user in the database
-//we will use the bcrypt library to hash the password
-    //we will use the jsonwebtoken library to generate the token
-    //we will use the cookie-parser library to set the cookie in the response
-    //we will use the cors library to allow the cross-origin requests from the client
+export {
+    registerUser,
+    loginUser,
+    logoutUser,
+    refreshAccessToken
+    
+}

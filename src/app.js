@@ -1,5 +1,5 @@
 import express from 'express';
-
+import userRouter from "./routes/user.routes.js";
 import cors from 'cors';
 
 import cookieParser from 'cookie-parser';
@@ -26,10 +26,10 @@ app.use(cookieParser());
 
 app.use(express.static('public'));
 
-app.use(cookieParser());
 
 
-import userRouter from "./routes/user.routes.js";
+
+
 
 app.use("/api/v1/users", userRouter);
 //first come to /api/v1/users then to userRouter and then to /register and then to registerUser controller function 

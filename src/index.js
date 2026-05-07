@@ -1,7 +1,7 @@
 //import dotenv from "dotenv"; as early as possible to load environment variables from .env file so that they are available throughout the application
 
-import dotenv from "dotenv";
-dotenv.config({ path: './.env' });
+import "dotenv/config";
+
 
 import connectDB from "./db/index.js";
 import { app } from "./app.js";
